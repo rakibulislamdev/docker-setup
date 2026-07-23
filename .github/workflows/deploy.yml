@@ -1,0 +1,64 @@
+name: Deploy Next.js
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.2.0
+
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+
+          script: |
+            set -e
+
+            echo "===== DEPLOYMENT START ====="
+
+            echo "User:"
+            whoami
+
+            echo "Home:"
+            echo $HOME
+
+            # VPS-এ ডকার ইনস্টলড আছে কিনা এবং এর ভার্সন চেক করার জন্য
+            echo "Docker Version:"
+            docker -v
+
+            # প্রজেক্ট ডিরেক্টরিতে যাওয়া
+            echo "Going to project directory..."
+            cd /var/www/docker-setup
+            pwd
+
+            # গিটহাব থেকে লেটেস্ট কোড পুল করা এবং লোকাল চেঞ্জ থাকলে তা রিসেট করা
+            echo "Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/main
+
+            # Dockerfile ব্যবহার করে নতুন ডকার ইমেজ বিল্ড করা (ট্যাগ: docker-setup)
+            echo "Building Docker image..."
+            docker build -t docker-setup .
+
+            # আগের তৈরি করা কন্টেইনার সচল থাকলে তা বন্ধ করা এবং ডিলিট করা
+            echo "Stopping and removing existing container..."
+            docker stop docker-setup || true
+            docker rm docker-setup || true
+
+            # নতুন ডকার কন্টেইনার ব্যাকগ্রাউন্ডে ৩০০০ পোর্টে চালু করা (সার্ভার ক্র্যাশ বা রিবুট হলে অটোমেটিক রিস্টার্ট হবে)
+            echo "Running new Docker container..."
+            docker run -d --name docker-setup -p 3000:3000 --restart always docker-setup
+
+            # ডকার বিল্ড করার পর তৈরি হওয়া অপ্রয়োজনীয়/অব্যবহৃত ইমেজগুলো মুছে ফেলা (VPS-এর স্পেস বাঁচাতে)
+            echo "Cleaning up unused Docker images..."
+            docker image prune -f
+
+            echo "===== DEPLOYMENT COMPLETE ====="
